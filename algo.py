@@ -1,5 +1,20 @@
 import requests
 import pandas as pd
+import os
+
+BOT = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT = os.getenv("TELEGRAM_CHAT_ID")
+
+def send_tg(msg):
+    try:
+        if BOT and CHAT:
+            url = f"https://api.telegram.org/bot{BOT}/sendMessage"
+            requests.post(url, data={"chat_id": CHAT, "text": msg}, timeout=15)
+            print("Telegram sent")
+        else:
+            print("Telegram secret missing")
+    except Exception as e:
+        print(f"Telegram error: {e}")
 
 def ema(s, span):
     return s.ewm(span=span, adjust=False).mean()
@@ -44,29 +59,36 @@ for base in bases:
 
 try:
     if df is None or len(df) == 0:
-        print("No data from Yahoo")
-        print(">>> HOLD - No Trade")
+        msg = "Mass Algo: No data from Yahoo\n>>> HOLD - No Trade"
+        print(msg)
+        send_tg(msg)
     else:
         print(f"candles: {len(df)}")
         if len(df) < 30:
-            print("NOT ENOUGH DATA - Market closed time")
-            print(">>> HOLD - No Trade")
+            msg = "Mass Algo: Market closed time\n>>> HOLD - No Trade"
+            print(msg)
+            send_tg(msg)
         else:
             df["ema20"] = ema(df["close"], 20)
             df["rsi"] = rsi_calc(df["close"], 14)
             tp = (df["high"] + df["low"] + df["close"]) / 3
-            df["vwap"] = (tp * df["volume"]).cumsum() / df["volume"].cumsum()
+            vol = df["volume"].fillna(0)
+            df["vwap"] = (tp * vol).cumsum() / vol.cumsum().replace(0, float("nan"))
+            df["vwap"] = df["vwap"].fillna(df["close"])
             close = float(df["close"].iloc[-1])
             ema20 = float(df["ema20"].iloc[-1])
             rsi = float(df["rsi"].iloc[-1])
             vwap = float(df["vwap"].iloc[-1])
             print(f"NIFTY {close:.2f} RSI {rsi:.1f} VWAP {vwap:.2f} EMA20 {ema20:.2f}")
             if close > vwap and rsi > 55 and close > ema20:
-                print(">>> SIGNAL BUY NIFTY ATM CE - Only Buying")
+                signal = ">>> SIGNAL BUY NIFTY ATM CE - Only Buying"
             elif close < vwap and rsi < 45 and close < ema20:
-                print(">>> SIGNAL BUY NIFTY ATM PE - Only Buying")
+                signal = ">>> SIGNAL BUY NIFTY ATM PE - Only Buying"
             else:
-                print(">>> HOLD - No Trade")
+                signal = ">>> HOLD - No Trade"
+            print(signal)
+            msg = f"Mass Algo NIFTY\nPrice {close:.2f}\nRSI {rsi:.1f}\nVWAP {vwap:.2f}\n{signal}"
+            send_tg(msg)
 except Exception as e:
     print(f"Error: {e}")
-    print(">>> HOLD - No Trade")
+    send_tg(f"Mass Algo Error {e}\n>>> HOLD - No Trade")

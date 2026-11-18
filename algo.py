@@ -36,7 +36,7 @@ headers = {"User-Agent": "Mozilla/5.0"}
 
 for base in bases:
     try:
-        url = f"{base}/v8/finance/chart/%5ENSEI?interval=5m&range=1d"
+        url = f"{base}/v8/finance/chart/%5ENSEI?interval=5m&range=5d"
         r = requests.get(url, headers=headers, timeout=20)
         j = r.json()
         result = j["chart"]["result"][0]
@@ -63,31 +63,48 @@ try:
         print(msg)
         send_tg(msg)
     else:
-        print(f"candles: {len(df)}")
-        if len(df) < 30:
-            msg = "Mass Algo: Market closed time\n>>> HOLD - No Trade"
+        df["dt"] = pd.to_datetime(df["ts"], unit="s", utc=True).dt.tz_convert("Asia/Kolkata")
+        today = pd.Timestamp.now(tz="Asia/Kolkata").date()
+        dft = df[df["dt"].dt.date == today].reset_index(drop=True)
+        print(f"total candles: {len(df)}, today candles: {len(dft)}")
+        if len(dft) == 0:
+            msg = "Mass Algo: Market closed / Holiday\n>>> HOLD - No Trade"
+            print(msg)
+            send_tg(msg)
+        elif len(dft) < 2:
+            msg = "Mass Algo: Market warming up...\n>>> HOLD - No Trade"
             print(msg)
             send_tg(msg)
         else:
             df["ema20"] = ema(df["close"], 20)
             df["rsi"] = rsi_calc(df["close"], 14)
-            tp = (df["high"] + df["low"] + df["close"]) / 3
-            vol = df["volume"].fillna(0)
-            df["vwap"] = (tp * vol).cumsum() / vol.cumsum().replace(0, float("nan"))
-            df["vwap"] = df["vwap"].fillna(df["close"])
-            close = float(df["close"].iloc[-1])
-            ema20 = float(df["ema20"].iloc[-1])
-            rsi = float(df["rsi"].iloc[-1])
-            vwap = float(df["vwap"].iloc[-1])
-            print(f"NIFTY {close:.2f} RSI {rsi:.1f} VWAP {vwap:.2f} EMA20 {ema20:.2f}")
-            if close > vwap and rsi > 55 and close > ema20:
+            dft = df[df["dt"].dt.date == today].reset_index(drop=True)
+            tp = (dft["high"] + dft["low"] + dft["close"]) / 3
+            vol = dft["volume"].fillna(0)
+            has_vol = vol.sum() > 0
+            if has_vol:
+                vwap = float(((tp * vol).cumsum() / vol.cumsum()).iloc[-1])
+            else:
+                vwap = float(dft["close"].iloc[-1])
+            close = float(dft["close"].iloc[-1])
+            ema20 = float(dft["ema20"].iloc[-1])
+            rsi = float(dft["rsi"].iloc[-1])
+            tnow = dft["dt"].iloc[-1].strftime("%H:%M")
+            print(f"NIFTY {close:.2f} @ {tnow} RSI {rsi:.1f} VWAP {vwap:.2f} EMA20 {ema20:.2f}")
+            if has_vol:
+                ce_vwap_ok = close > vwap
+                pe_vwap_ok = close < vwap
+            else:
+                ce_vwap_ok = True
+                pe_vwap_ok = True
+            if ce_vwap_ok and rsi > 55 and close > ema20:
                 signal = ">>> SIGNAL BUY NIFTY ATM CE - Only Buying"
-            elif close < vwap and rsi < 45 and close < ema20:
+            elif pe_vwap_ok and rsi < 45 and close < ema20:
                 signal = ">>> SIGNAL BUY NIFTY ATM PE - Only Buying"
             else:
                 signal = ">>> HOLD - No Trade"
             print(signal)
-            msg = f"Mass Algo NIFTY\nPrice {close:.2f}\nRSI {rsi:.1f}\nVWAP {vwap:.2f}\n{signal}"
+            msg = (f"Mass Algo NIFTY {tnow}\nPrice {close:.2f}\nRSI {rsi:.1f}\nVWAP {vwap:.2f}\nEMA20 {ema20:.2f}\n{signal}")
             send_tg(msg)
 except Exception as e:
     print(f"Error: {e}")

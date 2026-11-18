@@ -1,7 +1,7 @@
 name: mass-algo
 on:
   schedule:
-    - cron: '*/15 3-10 * * 1-5'
+    - cron: '*/15 4-10 * * 1-5'
   workflow_dispatch:
 jobs:
   run:
@@ -12,6 +12,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install requests pandas
-      - run: python algo.py
+      - name: Run python algo.py
+        run: python algo.py
         env:
-          UPSTOX_TOKEN: ${{ secrets.UPSTOX_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
